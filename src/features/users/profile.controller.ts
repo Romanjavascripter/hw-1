@@ -1,0 +1,13 @@
+import { Controller, Get, Request, UseGuards } from "@nestjs/common";
+import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard.js";
+import { User } from "./entity/user.entity.js";
+
+@UseGuards(JwtAuthGuard)
+@Controller('profile')
+export class ProfileController{
+    
+    @Get('my')
+    async myProfile(@Request() req:{user:User}){
+        return req.user
+    }
+}
