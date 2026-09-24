@@ -18,4 +18,6 @@ export class User{
     createdAt:Date;
     @UpdateDateColumn()
     updatedAt:Date;
+    @DeleteDateColumn()
+    deletedAt?:Date;
 }
