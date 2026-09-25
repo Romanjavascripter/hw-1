@@ -22,7 +22,6 @@ search?:string;
 @Max(100)
 limit:number=10;
 
-@ApiProperty({ example: 10, minimum: 1, maximum: 100, default: 10 })
 @ApiProperty({ example: 1, minimum: 1, default: 1 })
 @Type(() => Number)
 @IsInt()

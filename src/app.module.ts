@@ -23,7 +23,5 @@ import { AuthModule } from './auth/auth.module.js';
     }),
   }), AuthModule
   ],
-  //controllers: [AppController],
-  //providers: [AppService],
 })
 export class AppModule {}

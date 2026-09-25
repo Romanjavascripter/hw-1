@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException} from '@nestjs/common';
 import { FindUsersDto, PaginatedDto } from './dto/find-users.dto.js';
 import { IUsersRepository } from './users.repository.interface.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';

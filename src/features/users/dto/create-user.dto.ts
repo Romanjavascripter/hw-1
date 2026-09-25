@@ -15,8 +15,9 @@ export class CreateUserDto{
   })
     login:string;
 
-    @ApiProperty({ example: 'alex@mail.com', maxLength: 255 })
+    @ApiProperty({ example: 'alex@mail.com', maxLength: 50 })
     @IsString()
+    @MaxLength(50)
     @IsEmail()
     email:string;
 

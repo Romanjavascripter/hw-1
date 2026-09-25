@@ -13,7 +13,7 @@ export class User{
     @Column({type:'int'})
     age:number;
     @Column({type:'varchar', length:1000, nullable:true})
-    description:string;
+    description:string | null;
     @CreateDateColumn()
     createdAt:Date;
     @UpdateDateColumn()
