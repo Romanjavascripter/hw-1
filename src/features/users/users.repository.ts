@@ -44,11 +44,24 @@ export class UsersRepository implements IUsersRepository{
     async findAll(params: { page: number; limit: number; search?: string; }): Promise<{ items: User[]; total: number; }> {
         const {page, limit, search } = params;
         const [items, total] = await this.repo.findAndCount({
-             where: search ? { login: ILike(`%${search}%`)}:{},
+            where: search ? { login: ILike(`%${search}%`)}:{},
             skip: (page-1)*limit,
             take:limit,
             order: { createdAt:'DESC'}
         })
         return {items, total}
     }
+
+    async findByIdWithRefreshToken(id:string):Promise<User | null>{
+        return this.repo.createQueryBuilder('user')
+        .addSelect('user.refreshTokenHash')
+        .where('user.id=:id', {id})
+        .getOne()
+    }
+
+    async updateRefreshTokenHash(id: string, hash: string | null): Promise<void> {
+        await this.repo.update(id,{refreshTokenHash:hash})
+    }
+
+
 }

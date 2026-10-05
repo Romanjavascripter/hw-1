@@ -3,6 +3,10 @@ import { PassportStrategy } from "@nestjs/passport";
 import { IUsersRepository } from "../../features/users/users.repository.interface.js";
 import { ConfigService } from "@nestjs/config";
 import { ExtractJwt, Strategy } from "passport-jwt";
+import { JwtPayload } from "../jwt-payload.interface.js";
+import { User } from "../../features/users/entity/user.entity.js";
+import { hashToken } from "../hash-token.js";
+import { Request } from "express";
 
 
 @Injectable()
@@ -19,12 +23,17 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy,'jwt-refresh')
             jwtFromRequest:ExtractJwt.fromBodyField('refresh_token'),
             ignoreExpiration: false,
             secretOrKey: secret,
+            passReqToCallback:true
         })
 
     }
-    async validate(payload:any){
-        const user = await this.usersRepo.findById(payload.sub)
-        if(!user){
+    async validate(req:Request, payload:JwtPayload):Promise<User>{
+        const token :unknown = req.body?.refresh_token
+        const user = await this.usersRepo.findByIdWithRefreshToken(payload.sub)
+        if(typeof token !== 'string' ||
+            !user?.refreshTokenHash ||
+            user.refreshTokenHash!==hashToken(token)
+            ){
             throw new UnauthorizedException('Invalid data')
         }
         return user

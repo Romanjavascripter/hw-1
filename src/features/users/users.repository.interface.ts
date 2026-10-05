@@ -16,4 +16,6 @@ export abstract class IUsersRepository {
     items: User[];
     total: number;
   }>;
+  abstract findByIdWithRefreshToken(id:string): Promise<User | null>;
+  abstract updateRefreshTokenHash(id:string, hash:string | null): Promise<void>
 }

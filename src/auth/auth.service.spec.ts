@@ -5,10 +5,13 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { ConflictException } from "@nestjs/common";
 import { User } from "../features/users/entity/user.entity.js";
+import { hashToken } from "./hash-token.js";
 
 describe('AuthService', ()=>{
     let service:AuthService;
-    let repo:{create:ReturnType<typeof vi.fn>}
+    let repo:{create:ReturnType<typeof vi.fn>,
+        updateRefreshTokenHash:ReturnType<typeof vi.fn>
+    }
 
     const dto = {
         login: "lance",
@@ -17,7 +20,9 @@ describe('AuthService', ()=>{
         age:20
     }
     beforeEach(async ()=>{
-    repo = {create:vi.fn()}
+    repo = {create:vi.fn(),
+        updateRefreshTokenHash:vi.fn()
+    }
     
     const moduleRef = await Test.createTestingModule({
         providers:[
@@ -58,5 +63,37 @@ describe('AuthService', ()=>{
         expect(savedUser.password).not.toBe(dto.password)
         expect(savedUser.password).toMatch(/^\$2[aby]\$/)
         expect(savedUser.password).toHaveLength(60)
+    })
+
+    it('register сщхраняет хэш рефреша, а не сам токен', async ()=>{
+        repo.create.mockImplementation((data)=>Promise.resolve({id:'1', ...data}))
+        const result = await service.register(dto)
+        expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith(
+            '1',
+            hashToken(result.refresh_token)
+        )
+        const savedHash = repo.updateRefreshTokenHash.mock.calls[0][1]
+        expect(savedHash).not.toBe(result.refresh_token)
+        expect(savedHash).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    it('refresh перезаписывает хэш новым токеном', async ()=>{
+        const user = {id:'1', login:'lance'} as User
+        const result = await service.refresh(user)
+        expect(repo.updateRefreshTokenHash).toHaveBeenCalledTimes(1)
+        expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith(
+            '1',
+            hashToken(result.refresh_token)
+        )
+    })
+    it('в ответе нет поля refreshTokenHash', async ()=>{
+        const user = {id:'1', login:'lance', refreshTokenHash:'rfrjqhash'} as User
+        const result = await service.login(user)
+        expect(result.user).not.toHaveProperty('refreshTokenHash')
+    })
+
+    it('logout терминирует старый хеш', async ()=>{
+        await service.logout('1')
+        expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith('1', null)
     })
 })

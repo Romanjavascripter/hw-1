@@ -14,6 +14,8 @@ export class User{
     age:number;
     @Column({type:'varchar', length:1000, nullable:true})
     description:string | null;
+    @Column({type:'varchar', nullable:true, select:true})
+    refreshTokenHash:string | null;
     @CreateDateColumn()
     createdAt:Date;
     @UpdateDateColumn()

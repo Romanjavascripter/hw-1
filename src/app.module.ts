@@ -19,7 +19,9 @@ import { AuthModule } from './auth/auth.module.js';
       password:config.get<string>('DB_PASSWORD'),
       database:config.get<string>('DB_NAME'),
       entities:[User],
-      synchronize:true
+      synchronize: false,
+      migrations: ['dist/migrations/*.js'],
+      migrationsRun: true,
     }),
   }), AuthModule
   ],

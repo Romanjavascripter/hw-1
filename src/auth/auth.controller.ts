@@ -12,9 +12,10 @@ import { CreateUserDto } from '../features/users/dto/create-user.dto.js';
 import { User } from '../features/users/entity/user.entity.js';
 import { LocalAuthGuard } from './guards/local-auth.guard.js';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard.js';
-import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshDto } from './dto/refresh.dto.js';
+import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -42,12 +43,29 @@ export class AuthController {
   }
   @ApiBody({ type: RefreshDto })
   @ApiResponse({ status: 200, description: 'Выдана новая пара токенов' })
-  @ApiResponse({ status: 401, description: 'Refresh-токен недействителен или истёк' })
+  @ApiResponse({
+    status: 401,
+    description: 'Refresh-токен недействителен или истёк',
+  })
   @ApiOperation({ summary: 'Обновление пары токенов по рефреш-токену' })
   @Post('refresh')
   @UseGuards(JwtRefreshGuard)
   @HttpCode(HttpStatus.OK)
   async refresh(@Request() req: { user: User }) {
     return this.authService.refresh(req.user);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Выход: refresh-токен перестаёт действовать' })
+  @ApiResponse({ status: 204, description: 'Выход выполнен' })
+  @ApiResponse({
+    status: 401,
+    description: 'Access-токен недействителен или истёк',
+  })
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(@Request() req: { user: User }): Promise<void> {
+    await this.authService.logout(req.user.id);
   }
 }
