@@ -1,9 +1,8 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './features/users/entity/user.entity.js';
+import { AuthModule } from './auth/auth.module.js';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -20,11 +19,11 @@ import { User } from './features/users/entity/user.entity.js';
       password:config.get<string>('DB_PASSWORD'),
       database:config.get<string>('DB_NAME'),
       entities:[User],
-      synchronize:true
+      synchronize: false,
+      migrations: ['dist/migrations/*.js'],
+      migrationsRun: true,
     }),
-  })
+  }), AuthModule
   ],
-  //controllers: [AppController],
-  //providers: [AppService],
 })
 export class AppModule {}
