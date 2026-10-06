@@ -33,6 +33,7 @@ export class AuthController {
 
   @ApiBody({ type: LoginDto })
   @ApiResponse({ status: 200, description: 'Успешно' })
+  @ApiResponse({ status: 400, description: 'Данные не прошли валидацию' })
   @ApiResponse({ status: 401, description: 'Неверный логин или пароль' })
   @ApiOperation({ summary: 'Вход по логину и паролю' })
   @Post('login')
@@ -41,12 +42,14 @@ export class AuthController {
   async login(@Request() req: { user: User }) {
     return this.authService.login(req.user);
   }
+
   @ApiBody({ type: RefreshDto })
   @ApiResponse({ status: 200, description: 'Выдана новая пара токенов' })
   @ApiResponse({
     status: 401,
     description: 'Refresh-токен недействителен или истёк',
   })
+  @ApiResponse({ status: 400, description: 'Данные не прошли валидацию' })
   @ApiOperation({ summary: 'Обновление пары токенов по рефреш-токену' })
   @Post('refresh')
   @UseGuards(JwtRefreshGuard)

@@ -3,6 +3,7 @@ import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { IUsersRepository } from "../../features/users/users.repository.interface.js";
 import { ConfigService } from "@nestjs/config";
+import { JwtPayload } from "../jwt-payload.interface.js";
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy){
@@ -20,7 +21,7 @@ export class JwtStrategy extends PassportStrategy(Strategy){
             secretOrKey:secret
         })
     }
-    async validate(payload:any){
+    async validate(payload:JwtPayload){
         const user = await this.usersRepo.findById(payload.sub)
         if(!user){
             throw new UnauthorizedException ('Invalid data')
