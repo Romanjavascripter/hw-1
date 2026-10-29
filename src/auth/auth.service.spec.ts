@@ -3,14 +3,16 @@ import { AuthService } from "./auth.service.js"
 import { IUsersRepository } from "../features/users/users.repository.interface.js";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, UnauthorizedException } from "@nestjs/common";
 import { User } from "../features/users/entity/user.entity.js";
 import { hashToken } from "./hash-token.js";
 
 describe('AuthService', ()=>{
     let service:AuthService;
-    let repo:{create:ReturnType<typeof vi.fn>,
-        updateRefreshTokenHash:ReturnType<typeof vi.fn>
+    let repo:{
+        create:ReturnType<typeof vi.fn>,
+        updateRefreshTokenHash:ReturnType<typeof vi.fn>,
+        rotateRefreshTokenHash:ReturnType<typeof vi.fn>;
     }
 
     const dto = {
@@ -19,26 +21,28 @@ describe('AuthService', ()=>{
         password:"qwerty123",
         age:20
     }
+
     beforeEach(async ()=>{
-    repo = {create:vi.fn(),
-        updateRefreshTokenHash:vi.fn()
-    }
-    
-    const moduleRef = await Test.createTestingModule({
-        providers:[
-            AuthService,
-            {provide:IUsersRepository, useValue:repo},
-            {provide:JwtService, useValue:{sign:vi.fn(()=>'подписанный токен')}},
-            {provide:ConfigService, useValue:{
-                get:vi.fn(()=>'15m'),
-                getOrThrow:vi.fn(()=>'тестовый секрет')
-            }
-            }
-            
-        ]
-    }).compile()
-    service=moduleRef.get(AuthService)
+        repo = {
+            create:vi.fn(),
+            updateRefreshTokenHash:vi.fn(),
+            rotateRefreshTokenHash: vi.fn()
+        }
+
+        const moduleRef = await Test.createTestingModule({
+            providers:[
+                AuthService,
+                {provide:IUsersRepository, useValue:repo},
+                {provide:JwtService, useValue:{sign:vi.fn(()=>'подписанный токен')}},
+                {provide:ConfigService, useValue:{
+                    get:vi.fn(()=>'15m'),
+                    getOrThrow:vi.fn(()=>'тестовый секрет')
+                }}
+            ]
+        }).compile()
+        service = moduleRef.get(AuthService)
     })
+
     it('В ответе register нет поля password', async ()=>{
         repo.create.mockImplementation((data)=>Promise.resolve({id:'1', ...data}))
 
@@ -58,14 +62,14 @@ describe('AuthService', ()=>{
         repo.create.mockImplementation((data)=>Promise.resolve({id:'1', ...data}));
 
         await service.register(dto)
-        const savedUser = repo.create.mock.calls[0][0]as Partial<User> 
+        const savedUser = repo.create.mock.calls[0][0] as Partial<User>
 
         expect(savedUser.password).not.toBe(dto.password)
         expect(savedUser.password).toMatch(/^\$2[aby]\$/)
         expect(savedUser.password).toHaveLength(60)
     })
 
-    it('register сщхраняет хэш рефреша, а не сам токен', async ()=>{
+    it('register сохраняет хэш рефреша, а не сам токен', async ()=>{
         repo.create.mockImplementation((data)=>Promise.resolve({id:'1', ...data}))
         const result = await service.register(dto)
         expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith(
@@ -77,15 +81,36 @@ describe('AuthService', ()=>{
         expect(savedHash).toMatch(/^[0-9a-f]{64}$/)
     })
 
-    it('refresh перезаписывает хэш новым токеном', async ()=>{
-        const user = {id:'1', login:'lance'} as User
+    it('refresh ротирует хэш: старый хэш → хэш нового токена', async ()=>{
+        const oldHash = 'a'.repeat(64)
+        const user = {id:'1', login:'lance', refreshTokenHash: oldHash} as User
+        repo.rotateRefreshTokenHash.mockResolvedValue(true)
+
         const result = await service.refresh(user)
-        expect(repo.updateRefreshTokenHash).toHaveBeenCalledTimes(1)
-        expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith(
+
+        expect(repo.rotateRefreshTokenHash).toHaveBeenCalledTimes(1)
+        expect(repo.rotateRefreshTokenHash).toHaveBeenCalledWith(
             '1',
+            oldHash,
             hashToken(result.refresh_token)
         )
+        // при ротации обычный update не должен вызываться
+        expect(repo.updateRefreshTokenHash).not.toHaveBeenCalled()
+        expect(result.access_token).toBeDefined()
+        expect(result.refresh_token).toBeDefined()
     })
+
+    it('refresh кидает UnauthorizedException, если rotateRefreshTokenHash вернул false', async ()=>{
+        const oldHash = 'a'.repeat(64)
+        const user = {id:'1', login:'lance', refreshTokenHash: oldHash} as User
+        // гонка проиграна — старый хэш уже не совпадает
+        repo.rotateRefreshTokenHash.mockResolvedValue(false)
+
+        await expect(service.refresh(user)).rejects.toThrow(UnauthorizedException)
+        expect(repo.rotateRefreshTokenHash).toHaveBeenCalledTimes(1)
+        // токены не отдаются: вызов бросил исключение, результата нет
+    })
+
     it('в ответе нет поля refreshTokenHash', async ()=>{
         const user = {id:'1', login:'lance', refreshTokenHash:'rfrjqhash'} as User
         const result = await service.login(user)

@@ -18,4 +18,5 @@ export abstract class IUsersRepository {
   }>;
   abstract findByIdWithRefreshToken(id:string): Promise<User | null>;
   abstract updateRefreshTokenHash(id:string, hash:string | null): Promise<void>
+  abstract rotateRefreshTokenHash(id:string, oldHash: string, newHash: string): Promise<boolean>
 }

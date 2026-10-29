@@ -63,5 +63,12 @@ export class UsersRepository implements IUsersRepository{
         await this.repo.update(id,{refreshTokenHash:hash})
     }
 
+    async rotateRefreshTokenHash(id:string, oldHash: string, newHash: string): Promise<boolean>{
+        const result = await this.repo.update(
+            {id, refreshTokenHash:oldHash},
+            {refreshTokenHash: newHash},
+        );
+        return (result.affected ?? 0)===1
+    }
 
 }

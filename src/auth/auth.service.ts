@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { IUsersRepository } from '../features/users/users.repository.interface.js';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -41,12 +41,16 @@ export class AuthService {
     });
     return { access_token: accessToken, refresh_token: refreshToken };
   }
-  private async issueTokens(user: User) {
+  private async issueTokens(user: User, expectedHash?: string) {
     const tokens = this.generateTokens(user);
-    await this.usersRepo.updateRefreshTokenHash(
-      user.id,
-      hashToken(tokens.refresh_token)
-    )
+    const newHash = hashToken(tokens.refresh_token)
+    if(expectedHash !== undefined){
+      const rotated = await this.usersRepo.rotateRefreshTokenHash(
+        user.id, expectedHash, newHash);
+        if(!rotated) throw new UnauthorizedException('Refresh token already used');
+    } else {
+      await this.usersRepo.updateRefreshTokenHash(user.id, newHash);
+    }
     const { password: _password, refreshTokenHash: _hash, ...safeUser } = user;
     return {
       ...tokens,
@@ -78,7 +82,8 @@ export class AuthService {
   }
 
   async refresh(user:User){
-    return this.issueTokens(user)
+    if (!user.refreshTokenHash) throw new UnauthorizedException('Invalid data')
+    return this.issueTokens(user, user.refreshTokenHash)
   }
 
   async logout(userId:string):Promise<void>{
