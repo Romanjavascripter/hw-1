@@ -13,9 +13,13 @@ export class User{
     @Column({type:'int'})
     age:number;
     @Column({type:'varchar', length:1000, nullable:true})
-    descriptiona:string;
+    description:string | null;
+    @Column({type:'varchar', nullable:true, select:false})
+    refreshTokenHash:string | null;
     @CreateDateColumn()
     createdAt:Date;
     @UpdateDateColumn()
     updatedAt:Date;
+    @DeleteDateColumn()
+    deletedAt?:Date;
 }
