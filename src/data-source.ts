@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
-import { User } from './features/users/entity/user.entity.js';
 
 export default new DataSource({
   type: 'postgres',
@@ -9,6 +8,7 @@ export default new DataSource({
   username: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  entities: [User],
+
+  entities: ['dist/**/*.entity.js'],
   migrations: ['dist/migrations/*.js'],
 });

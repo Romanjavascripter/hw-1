@@ -1,5 +1,5 @@
 export interface JwtPayload {
-    sub:string;
-    login:string;
-    jti?:string
+  sub: string;
+  login: string;
+  jti?: string;
 }

@@ -3,9 +3,11 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Patch,
+  Post,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +21,9 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { TransferDto } from './dto/transfer.dto.js';
+import { TransferHeadersDto } from './dto/transfer-headers.dto.js';
+import { ChangePasswordDto } from './dto/change-password.dto.js';
 
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -49,5 +54,35 @@ export class ProfileController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteUser(@Request() req: { user: User }) {
     await this.usersService.delete(req.user.id);
+  }
+  @ApiResponse({ status: 200, description: 'Перевод успешно выполнен' })
+  @ApiResponse({
+    status: 400,
+    description: 'Недостаточно средств или неверная сумма',
+  })
+  @ApiResponse({ status: 401, description: 'Не авторизован' })
+  @ApiResponse({ status: 404, description: 'Получатель не найден' })
+  @ApiOperation({ summary: 'Перевод денег другому юзеру' })
+  @Post('transfer')
+  async transfer(
+    @Request() req: { user: User },
+    @Body() dto: TransferDto,
+
+    @Headers() headers: TransferHeadersDto,
+  ) {
+    return this.usersService.transfer(
+      req.user.id,
+      dto,
+      headers['idempotency-key'],
+    );
+  }
+
+  @Patch('change-password')
+  @ApiOperation({ summary: 'Смена пароля' })
+  async changePassword(
+    @Request() req: { user: User },
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.usersService.changePassword(req.user.id, dto);
   }
 }

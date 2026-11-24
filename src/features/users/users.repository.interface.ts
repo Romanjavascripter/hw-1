@@ -1,5 +1,16 @@
 import { User } from './entity/user.entity.js';
 
+export interface ActiveUserResponse {
+  id: string;
+  login: string;
+  age: number;
+  description: string;
+  avatarId: string;
+  avatarKey: string;
+  avatarCreatedAt: Date;
+}
+export type PublicUser = Pick<User, 'id' | 'login' | 'age'>;
+
 export abstract class IUsersRepository {
   abstract findById(id: string): Promise<User | null>;
   abstract findByEmail(email: string): Promise<User | null>;
@@ -13,10 +24,30 @@ export abstract class IUsersRepository {
     limit: number;
     search?: string;
   }): Promise<{
-    items: User[];
+    items: PublicUser[];
     total: number;
   }>;
-  abstract findByIdWithRefreshToken(id:string): Promise<User | null>;
-  abstract updateRefreshTokenHash(id:string, hash:string | null): Promise<void>
-  abstract rotateRefreshTokenHash(id:string, oldHash: string, newHash: string): Promise<boolean>
+  abstract findByIdWithRefreshToken(id: string): Promise<User | null>;
+  abstract updateRefreshTokenHash(
+    id: string,
+    hash: string | null,
+  ): Promise<void>;
+  abstract rotateRefreshTokenHash(
+    id: string,
+    oldHash: string,
+    newHash: string,
+  ): Promise<boolean>;
+  abstract findActiveUsers(
+    minAge: number,
+    maxAge: number,
+  ): Promise<ActiveUserResponse[]>;
+  abstract transferMoney(params: {
+    senderId: string;
+    receiverId: string;
+    amount: string;
+    idempotencyKey: string;
+    newSenderBalance: string;
+    newReceiverBalance: string;
+  }): Promise<{ newBalance: string }>;
+  abstract findIdWithPassword(id: string): Promise<User | null>;
 }

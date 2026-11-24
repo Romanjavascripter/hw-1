@@ -2,7 +2,14 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service.js';
 import { FindUsersDto } from './dto/find-users.dto.js';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard.js';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ActiveUsersQueryDto } from './dto/active-users-query.dto.js';
 
 @ApiBearerAuth()
 @ApiTags('users')
@@ -19,5 +26,12 @@ export class UsersController {
   @Get()
   async findUsers(@Query() dto: FindUsersDto) {
     return this.usersService.findUsers(dto);
+  }
+  @Get('active')
+  @UseGuards(JwtAuthGuard)
+  @ApiQuery({ name: 'minAge', type: Number, example: 18 })
+  @ApiQuery({ name: 'maxAge', type: Number, example: 30 })
+  async getActiveUsers(@Query() query: ActiveUsersQueryDto) {
+    return this.usersService.findActiveUsers(query.minAge, query.maxAge);
   }
 }

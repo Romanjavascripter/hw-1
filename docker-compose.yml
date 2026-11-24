@@ -1,4 +1,36 @@
 services:
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: server --console-address ":9001" /data
+    user: "0:0"
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio_storage:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio-init:
+    image: pgsty/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      until (mc alias set myminio http://minio:9000 minioadmin minioadmin) do echo 'Waiting for MinIO...' && sleep 1; done;
+      mc mb --ignore-existing myminio/avatars;
+      mc anonymous set download myminio/avatars;
+      exit 0;
+      "
+
   postgres:
     image: postgres:16-alpine
     container_name: hw-1_postgres
@@ -8,9 +40,21 @@ services:
       POSTGRES_PASSWORD: secret
       POSTGRES_DB: hw-1
     ports:
-      - "5434:5432"
+      - '5434:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7-alpine
+    container_name: hw-1_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
 volumes:
   pgdata:
+  minio_storage:
+  redis_data:

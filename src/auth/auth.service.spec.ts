@@ -1,124 +1,163 @@
-import { Test } from "@nestjs/testing";
-import { AuthService } from "./auth.service.js"
-import { IUsersRepository } from "../features/users/users.repository.interface.js";
-import { JwtService } from "@nestjs/jwt";
-import { ConfigService } from "@nestjs/config";
-import { ConflictException, UnauthorizedException } from "@nestjs/common";
-import { User } from "../features/users/entity/user.entity.js";
-import { hashToken } from "./hash-token.js";
+import { Test } from '@nestjs/testing';
+import { AuthService } from './auth.service.js';
+import { IUsersRepository } from '../features/users/users.repository.interface.js';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { User } from '../features/users/entity/user.entity.js';
+import { hashToken } from './hash-token.js';
+import { getLoggerToken } from 'nestjs-pino';
+import { PasswordHasherService } from './password-hasher.service.js';
 
-describe('AuthService', ()=>{
-    let service:AuthService;
-    let repo:{
-        create:ReturnType<typeof vi.fn>,
-        updateRefreshTokenHash:ReturnType<typeof vi.fn>,
-        rotateRefreshTokenHash:ReturnType<typeof vi.fn>;
-    }
+type MockPasswordHasher = {
+  hash: ReturnType<typeof vi.fn>;
+  compare: ReturnType<typeof vi.fn>;
+};
 
-    const dto = {
-        login: "lance",
-        email:"example@mail.com",
-        password:"qwerty123",
-        age:20
-    }
+describe('AuthService', () => {
+  let service: AuthService;
+  let mockPasswordHasher: MockPasswordHasher;
+  let repo: {
+    create: ReturnType<typeof vi.fn>;
+    updateRefreshTokenHash: ReturnType<typeof vi.fn>;
+    rotateRefreshTokenHash: ReturnType<typeof vi.fn>;
+  };
 
-    beforeEach(async ()=>{
-        repo = {
-            create:vi.fn(),
-            updateRefreshTokenHash:vi.fn(),
-            rotateRefreshTokenHash: vi.fn()
-        }
+  const dto = {
+    login: 'lance',
+    email: 'example@mail.com',
+    password: 'qwerty123',
+    age: 20,
+  };
 
-        const moduleRef = await Test.createTestingModule({
-            providers:[
-                AuthService,
-                {provide:IUsersRepository, useValue:repo},
-                {provide:JwtService, useValue:{sign:vi.fn(()=>'подписанный токен')}},
-                {provide:ConfigService, useValue:{
-                    get:vi.fn(()=>'15m'),
-                    getOrThrow:vi.fn(()=>'тестовый секрет')
-                }}
-            ]
-        }).compile()
-        service = moduleRef.get(AuthService)
-    })
+  beforeEach(async () => {
+    mockPasswordHasher = {
+      hash: vi.fn().mockResolvedValue('hashed_password'),
+      compare: vi.fn().mockResolvedValue(true),
+    };
+    repo = {
+      create: vi.fn(),
+      updateRefreshTokenHash: vi.fn(),
+      rotateRefreshTokenHash: vi.fn(),
+    };
 
-    it('В ответе register нет поля password', async ()=>{
-        repo.create.mockImplementation((data)=>Promise.resolve({id:'1', ...data}))
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: IUsersRepository, useValue: repo },
+        {
+          provide: JwtService,
+          useValue: { sign: vi.fn(() => 'подписанный токен') },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: vi.fn(() => '15m'),
+            getOrThrow: vi.fn(() => 'тестовый секрет'),
+          },
+        },
+        {
+          provide: PasswordHasherService,
+          useValue: mockPasswordHasher,
+        },
+        {
+          provide: getLoggerToken(AuthService.name),
+          useValue: { info: vi.fn(), error: vi.fn() },
+        },
+      ],
+    }).compile();
+    service = moduleRef.get(AuthService);
+  });
 
-        const result = await service.register(dto)
-        expect(result.user).not.toHaveProperty('password')
-        expect(result.access_token).toBeDefined()
-        expect(result.refresh_token).toBeDefined()
-    })
+  it('В ответе register нет поля password', async () => {
+    repo.create.mockImplementation((data) =>
+      Promise.resolve({ id: '1', ...data }),
+    );
 
-    it('превращает ошибку 23505 в ConflictException ', async ()=>{
-        repo.create.mockRejectedValue({code:'23505'})
+    const result = await service.register(dto);
+    expect(result.user).not.toHaveProperty('password');
+    expect(result.access_token).toBeDefined();
+    expect(result.refresh_token).toBeDefined();
+  });
 
-        await expect(service.register(dto)).rejects.toThrow(ConflictException)
-    })
+  it('превращает ошибку 23505 в ConflictException ', async () => {
+    repo.create.mockRejectedValue({ code: '23505' });
 
-    it('сохраняет пароль в виде bcrypt-хеша, а не открытым текстом', async ()=>{
-        repo.create.mockImplementation((data)=>Promise.resolve({id:'1', ...data}));
+    await expect(service.register(dto)).rejects.toThrow(ConflictException);
+  });
 
-        await service.register(dto)
-        const savedUser = repo.create.mock.calls[0][0] as Partial<User>
+  it('сохраняет пароль в виде bcrypt-хеша, а не открытым текстом', async () => {
+    const fakeBcryptHash =
+      '$2b$10$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXY123456';
+    mockPasswordHasher.hash.mockResolvedValue(fakeBcryptHash);
+    repo.create.mockImplementation((data) =>
+      Promise.resolve({ id: '1', ...data }),
+    );
 
-        expect(savedUser.password).not.toBe(dto.password)
-        expect(savedUser.password).toMatch(/^\$2[aby]\$/)
-        expect(savedUser.password).toHaveLength(60)
-    })
+    await service.register(dto);
+    const savedUser = repo.create.mock.calls[0][0] as Partial<User>;
 
-    it('register сохраняет хэш рефреша, а не сам токен', async ()=>{
-        repo.create.mockImplementation((data)=>Promise.resolve({id:'1', ...data}))
-        const result = await service.register(dto)
-        expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith(
-            '1',
-            hashToken(result.refresh_token)
-        )
-        const savedHash = repo.updateRefreshTokenHash.mock.calls[0][1]
-        expect(savedHash).not.toBe(result.refresh_token)
-        expect(savedHash).toMatch(/^[0-9a-f]{64}$/)
-    })
+    expect(savedUser.password).not.toBe(dto.password);
+    expect(savedUser.password).toMatch(/^\$2[aby]\$/);
+    expect(savedUser.password).toHaveLength(60);
+  });
 
-    it('refresh ротирует хэш: старый хэш → хэш нового токена', async ()=>{
-        const oldHash = 'a'.repeat(64)
-        const user = {id:'1', login:'lance', refreshTokenHash: oldHash} as User
-        repo.rotateRefreshTokenHash.mockResolvedValue(true)
+  it('register сохраняет хэш рефреша, а не сам токен', async () => {
+    repo.create.mockImplementation((data) =>
+      Promise.resolve({ id: '1', ...data }),
+    );
+    const result = await service.register(dto);
+    expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith(
+      '1',
+      hashToken(result.refresh_token),
+    );
+    const savedHash = repo.updateRefreshTokenHash.mock.calls[0][1];
+    expect(savedHash).not.toBe(result.refresh_token);
+    expect(savedHash).toMatch(/^[0-9a-f]{64}$/);
+  });
 
-        const result = await service.refresh(user)
+  it('refresh ротирует хэш: старый хэш → хэш нового токена', async () => {
+    const oldHash = 'a'.repeat(64);
+    const user = { id: '1', login: 'lance', refreshTokenHash: oldHash } as User;
+    repo.rotateRefreshTokenHash.mockResolvedValue(true);
 
-        expect(repo.rotateRefreshTokenHash).toHaveBeenCalledTimes(1)
-        expect(repo.rotateRefreshTokenHash).toHaveBeenCalledWith(
-            '1',
-            oldHash,
-            hashToken(result.refresh_token)
-        )
-        // при ротации обычный update не должен вызываться
-        expect(repo.updateRefreshTokenHash).not.toHaveBeenCalled()
-        expect(result.access_token).toBeDefined()
-        expect(result.refresh_token).toBeDefined()
-    })
+    const result = await service.refresh(user);
 
-    it('refresh кидает UnauthorizedException, если rotateRefreshTokenHash вернул false', async ()=>{
-        const oldHash = 'a'.repeat(64)
-        const user = {id:'1', login:'lance', refreshTokenHash: oldHash} as User
-        // гонка проиграна — старый хэш уже не совпадает
-        repo.rotateRefreshTokenHash.mockResolvedValue(false)
+    expect(repo.rotateRefreshTokenHash).toHaveBeenCalledTimes(1);
+    expect(repo.rotateRefreshTokenHash).toHaveBeenCalledWith(
+      '1',
+      oldHash,
+      hashToken(result.refresh_token),
+    );
+    // при ротации обычный update не должен вызываться
+    expect(repo.updateRefreshTokenHash).not.toHaveBeenCalled();
+    expect(result.access_token).toBeDefined();
+    expect(result.refresh_token).toBeDefined();
+  });
 
-        await expect(service.refresh(user)).rejects.toThrow(UnauthorizedException)
-        expect(repo.rotateRefreshTokenHash).toHaveBeenCalledTimes(1)
-        // токены не отдаются: вызов бросил исключение, результата нет
-    })
+  it('refresh кидает UnauthorizedException, если rotateRefreshTokenHash вернул false', async () => {
+    const oldHash = 'a'.repeat(64);
+    const user = { id: '1', login: 'lance', refreshTokenHash: oldHash } as User;
+    // гонка проиграна — старый хэш уже не совпадает
+    repo.rotateRefreshTokenHash.mockResolvedValue(false);
 
-    it('в ответе нет поля refreshTokenHash', async ()=>{
-        const user = {id:'1', login:'lance', refreshTokenHash:'rfrjqhash'} as User
-        const result = await service.login(user)
-        expect(result.user).not.toHaveProperty('refreshTokenHash')
-    })
+    await expect(service.refresh(user)).rejects.toThrow(UnauthorizedException);
+    expect(repo.rotateRefreshTokenHash).toHaveBeenCalledTimes(1);
+    // токены не отдаются: вызов бросил исключение, результата нет
+  });
 
-    it('logout терминирует старый хеш', async ()=>{
-        await service.logout('1')
-        expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith('1', null)
-    })
-})
+  it('в ответе нет поля refreshTokenHash', async () => {
+    const user = {
+      id: '1',
+      login: 'lance',
+      refreshTokenHash: 'rfrjqhash',
+    } as User;
+    const result = await service.login(user);
+    expect(result.user).not.toHaveProperty('refreshTokenHash');
+  });
+
+  it('logout терминирует старый хеш', async () => {
+    await service.logout('1');
+    expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith('1', null);
+  });
+});
