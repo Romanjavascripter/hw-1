@@ -9,13 +9,10 @@ import { FindUsersDto, PaginatedDto } from './dto/find-users.dto.js';
 import { IUsersRepository } from './users.repository.interface.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import { User } from './entity/user.entity.js';
-import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { TransferDto } from './dto/transfer.dto.js';
 import { Decimal } from 'decimal.js';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Transfer } from './entity/transfer.entity.js';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ActiveUserResponse } from './dto/active-user-response.interface.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
@@ -31,7 +28,6 @@ export class UsersService {
     private usersRepo: IUsersRepository,
     private passwordHasher: PasswordHasherService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
-    @InjectRepository(Transfer) private transferRepo: Repository<Transfer>,
     @InjectPinoLogger(UsersService.name) private logger: PinoLogger,
   ) {
     this.cacheTtl = Number(this.config.getOrThrow<number>('CACHE_TTL_MS'));
@@ -153,13 +149,9 @@ export class UsersService {
 
   async transfer(senderId: string, dto: TransferDto, idempotencyKey: string) {
     const { receiverId, amount } = dto;
+
     this.logger.info(
-      {
-        senderId,
-        receiverId: dto.receiverId,
-        amount: dto.amount,
-        idempotencyKey,
-      },
+      { senderId, receiverId, amount, idempotencyKey },
       'Начинаю перевод денег',
     );
 
@@ -167,9 +159,10 @@ export class UsersService {
     if (receiverId === senderId)
       throw new BadRequestException('Cannot transfer to yourself');
 
-    const existing = await this.transferRepo.findOne({
-      where: { idempotencyKey, senderId },
-    });
+    const existing = await this.usersRepo.findTransferByKey(
+      idempotencyKey,
+      senderId,
+    );
     if (existing) {
       if (
         !new Decimal(existing.amount).equals(amount) ||
@@ -185,23 +178,12 @@ export class UsersService {
         idempotentReplay: true,
       };
     }
-    const sender = await this.usersRepo.findById(senderId);
-    const receiver = await this.usersRepo.findById(receiverId);
-    if (!sender || !receiver) throw new NotFoundException('User not found');
 
-    const transferAmount = new Decimal(amount);
-    const senderBalance = new Decimal(sender.balance);
-    if (senderBalance.lessThan(transferAmount))
-      throw new BadRequestException('Insufficient amount of money');
     const result = await this.usersRepo.transferMoney({
       senderId,
       receiverId,
       amount,
       idempotencyKey,
-      newSenderBalance: senderBalance.minus(transferAmount).toFixed(2),
-      newReceiverBalance: new Decimal(receiver.balance)
-        .plus(transferAmount)
-        .toFixed(2),
     });
 
     await this.cacheManager.del(`user:profile:${senderId}`);
@@ -209,7 +191,7 @@ export class UsersService {
 
     this.logger.info(
       { senderId, receiverId, amount, newBalance: result.newBalance },
-      '✅ Перевод успешно завершен',
+      'Перевод успешно завершен',
     );
 
     return result;

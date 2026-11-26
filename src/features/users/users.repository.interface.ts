@@ -39,9 +39,10 @@ export abstract class IUsersRepository {
     receiverId: string;
     amount: string;
     idempotencyKey: string;
-    newSenderBalance: string;
-    newReceiverBalance: string;
   }): Promise<{ newBalance: string }>;
   abstract findIdWithPassword(id: string): Promise<User | null>;
-  abstract findTransferByKey(idempotencyKey: string): Promise<Transfer | null>;
+  abstract findTransferByKey(
+    idempotencyKey: string,
+    senderId: string,
+  ): Promise<Transfer | null>;
 }

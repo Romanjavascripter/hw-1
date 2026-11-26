@@ -1,18 +1,17 @@
 import { Test } from '@nestjs/testing';
 import { UsersService } from './users.service.js';
 import { NotFoundException } from '@nestjs/common';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { IUsersRepository } from './users.repository.interface.js';
-import { Transfer } from './entity/transfer.entity.js';
 import { ConfigService } from '@nestjs/config';
 import { PasswordHasherService } from '../../auth/password-hasher.service.js';
-import { getLoggerToken, PinoLogger } from 'nestjs-pino';
+import { getLoggerToken } from 'nestjs-pino';
 
 type mockRepo = {
   findAll: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   delete: ReturnType<typeof vi.fn>;
+  findTransferByKey: ReturnType<typeof vi.fn>; // <-- Исправлен тип
   findById: ReturnType<typeof vi.fn>;
 };
 
@@ -20,11 +19,6 @@ type mockCache = {
   get: ReturnType<typeof vi.fn>;
   set: ReturnType<typeof vi.fn>;
   del: ReturnType<typeof vi.fn>;
-};
-type mockTransferRepoType = {
-  findOne: ReturnType<typeof vi.fn>;
-  create: ReturnType<typeof vi.fn>;
-  save: ReturnType<typeof vi.fn>;
 };
 
 type MockConfig = {
@@ -49,7 +43,6 @@ describe('UsersService', () => {
   let service: UsersService;
   let repo: mockRepo;
   let mockCacheManager: mockCache;
-  let mockTransferRepo: mockTransferRepoType;
 
   beforeEach(async () => {
     repo = {
@@ -57,6 +50,7 @@ describe('UsersService', () => {
       findById: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
+      findTransferByKey: vi.fn(),
     };
 
     mockCacheManager = {
@@ -65,11 +59,6 @@ describe('UsersService', () => {
       del: vi.fn(),
     };
 
-    mockTransferRepo = {
-      findOne: vi.fn(),
-      create: vi.fn(),
-      save: vi.fn(),
-    };
     mockPasswordHasher = {
       hash: vi.fn(),
       compare: vi.fn(),
@@ -89,23 +78,11 @@ describe('UsersService', () => {
         UsersService,
         { provide: IUsersRepository, useValue: repo },
         { provide: CACHE_MANAGER, useValue: mockCacheManager },
-        { provide: getRepositoryToken(Transfer), useValue: mockTransferRepo },
         { provide: ConfigService, useValue: mockConfig },
         { provide: PasswordHasherService, useValue: mockPasswordHasher },
         {
           provide: getLoggerToken(UsersService.name),
           useValue: mockPinoLogger,
-        },
-        {
-          provide: PinoLogger,
-          useValue: {
-            debug: vi.fn(),
-            info: vi.fn(),
-            error: vi.fn(),
-            warn: vi.fn(),
-            trace: vi.fn(),
-            fatal: vi.fn(),
-          },
         },
       ],
     }).compile();

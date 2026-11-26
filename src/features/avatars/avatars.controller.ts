@@ -15,7 +15,6 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard.js';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { AvatarsService } from './avatars.service.js';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { avatarMulterOptions } from '../../providers/s3/avatar-multer.config.js';
 import { User } from '../users/entity/user.entity.js';
 import { AvatarValidationPipe } from '../../providers/s3/avatar-validation.pipe.js';
 
@@ -34,13 +33,14 @@ export class AvatarsController {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
-  @UseInterceptors(FileInterceptor('file', avatarMulterOptions))
+  @UseInterceptors(FileInterceptor('file'))
   async upload(
     @Request() req: { user: User },
     @UploadedFile(AvatarValidationPipe) file: Express.Multer.File,
   ) {
     return this.avatarsService.upload(req.user.id, file);
   }
+
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   async remove(

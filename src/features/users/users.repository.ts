@@ -13,6 +13,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Decimal } from 'decimal.js';
 import { Avatar } from './entity/avatar.entity.js';
 import { ActiveUserResponse } from './dto/active-user-response.interface.js';
+import { UniqueViolationError } from './errors/unique-violation.error.js';
 
 export type PublicUser = Pick<User, 'id' | 'login' | 'age'>;
 
@@ -41,7 +42,18 @@ export class UsersRepository implements IUsersRepository {
   }
 
   async create(data: Partial<User>): Promise<User> {
-    return this.repo.save(data);
+    try {
+      return await this.repo.save(data);
+    } catch (error) {
+      if (error instanceof QueryFailedError) {
+        const driverError = error.driverError as { code?: string };
+
+        if (driverError?.code === '23505') {
+          throw new UniqueViolationError('login or email');
+        }
+      }
+      throw error;
+    }
   }
 
   async findByLoginWithPassword(login: string): Promise<User | null> {
@@ -155,17 +167,8 @@ export class UsersRepository implements IUsersRepository {
     receiverId: string;
     amount: string;
     idempotencyKey: string;
-    newSenderBalance: string;
-    newReceiverBalance: string;
   }) {
-    const {
-      senderId,
-      receiverId,
-      amount,
-      idempotencyKey,
-      newSenderBalance,
-      newReceiverBalance,
-    } = params;
+    const { senderId, receiverId, amount, idempotencyKey } = params;
 
     const [firstId, secondId] = [senderId, receiverId].sort();
 
@@ -187,6 +190,18 @@ export class UsersRepository implements IUsersRepository {
 
         const sender = firstId === senderId ? firstUser : secondUser;
         const receiver = firstId === receiverId ? firstUser : secondUser;
+
+        const transferAmount = new Decimal(amount);
+        const senderBalance = new Decimal(sender.balance);
+
+        if (senderBalance.lessThan(transferAmount)) {
+          throw new BadRequestException('Insufficient funds');
+        }
+
+        const newSenderBalance = senderBalance.minus(transferAmount).toFixed(2);
+        const newReceiverBalance = new Decimal(receiver.balance)
+          .plus(transferAmount)
+          .toFixed(2);
 
         sender.balance = newSenderBalance;
         receiver.balance = newReceiverBalance;
@@ -244,7 +259,10 @@ export class UsersRepository implements IUsersRepository {
       .where('user.id=:id', { id })
       .getOne();
   }
-  async findTransferByKey(idempotencyKey: string): Promise<Transfer | null> {
-    return this.transferRepo.findOne({ where: { idempotencyKey } });
+  async findTransferByKey(
+    idempotencyKey: string,
+    senderId: string,
+  ): Promise<Transfer | null> {
+    return this.transferRepo.findOne({ where: { idempotencyKey, senderId } });
   }
 }

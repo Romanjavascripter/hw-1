@@ -1,10 +1,8 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
-  Headers,
   HttpCode,
   HttpStatus,
   Patch,
@@ -26,7 +24,7 @@ import {
 import { TransferDto } from './dto/transfer.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { ValidatePayloadExistsPipe } from '../../common/pipes/validate-payload-exists.pipe.js';
-import { isUUID } from 'class-validator';
+import { IdempotencyKey } from '../../common/decorators/idempotency-key.decorator.js';
 
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -72,26 +70,20 @@ export class ProfileController {
   @ApiOperation({ summary: 'Перевод денег другому юзеру' })
   @ApiHeader({
     name: 'idempotency-key',
-    description: 'Уникальный UUID ключ для защиты от двойного списания',
+    description: 'Уникальный UUID v4 ключ для защиты от двойного списания',
     required: true,
     schema: {
       type: 'string',
       format: 'uuid',
-      example: '11111111-1111-1111-1111-111111111111',
+      example: '123e4567-e89b-42d3-a456-426614174000',
     },
   })
   @Post('transfer')
   async transfer(
     @Request() req: { user: User },
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() dto: TransferDto,
+    @IdempotencyKey() idempotencyKey: string,
   ) {
-    if (!idempotencyKey || !isUUID(idempotencyKey, 4)) {
-      throw new BadRequestException(
-        'Idempotency-Key header is required and must be a UUID v4',
-      );
-    }
-
     return this.usersService.transfer(req.user.id, dto, idempotencyKey);
   }
 

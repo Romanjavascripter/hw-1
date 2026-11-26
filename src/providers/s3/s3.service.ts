@@ -6,7 +6,6 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 
-import { IFileService } from './adapter.js';
 import { UploadFilePayloadDto } from './dto/upload-file-payload.dto.js';
 import { UploadFileResultDto } from './dto/upload-file-result.dto.js';
 import { RemoveFilePayloadDto } from './dto/remove-file-payload.dto.js';
@@ -22,7 +21,9 @@ export class S3Service implements OnApplicationShutdown {
     @Inject('S3_CLIENT') private readonly s3Client: S3Client,
     private readonly configService: ConfigService,
     @InjectPinoLogger(S3Service.name) private readonly logger: PinoLogger,
-  ) {}
+  ) {
+    this.bucketName = this.configService.getOrThrow<string>('S3_BUCKET');
+  }
 
   async uploadFile(dto: UploadFilePayloadDto): Promise<UploadFileResultDto> {
     const { folder, file, name } = dto;
@@ -45,7 +46,7 @@ export class S3Service implements OnApplicationShutdown {
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : 'Unknown S3 upload error';
-      this.logger.error({ path, error: message }, '❌ File upload error');
+      this.logger.error({ path, error: message }, 'File upload error');
       throw new UploadException();
     }
   }

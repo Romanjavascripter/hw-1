@@ -15,7 +15,7 @@ export const envSchema = z.object({
   DB_NAME: z.string().min(1),
 
   // JWT
-  JWT_ACCESS_SECRET: z.string().min(10), // Если короче 10 символов — упадет
+  JWT_ACCESS_SECRET: z.string().min(10),
   JWT_ACCESS_EXPIRES_IN: z.string(),
   JWT_REFRESH_SECRET: z.string().min(10),
   JWT_REFRESH_EXPIRES_IN: z.string(),
@@ -36,6 +36,7 @@ export const envSchema = z.object({
   // Cleanup
   AVATAR_CLEANUP_CRON: z.string(),
   AVATAR_CLEANUP_RETENTION_DAYS: z.coerce.number(),
+  AVATAR_MAX_BYTES: z.coerce.number().default(10485760),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

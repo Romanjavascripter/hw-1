@@ -6,8 +6,16 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
+import { Request, Response } from 'express';
 import { MulterError } from 'multer';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import { ConfigService } from '@nestjs/config';
+
+interface ErrorResponseBody {
+  message: string | string[];
+  error?: string;
+  statusCode?: number;
+}
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -15,44 +23,50 @@ export class AllExceptionsFilter implements ExceptionFilter {
     private readonly httpAdapterHost: HttpAdapterHost,
     @InjectPinoLogger(AllExceptionsFilter.name)
     private readonly logger: PinoLogger,
+    private readonly configService: ConfigService,
   ) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
     const { httpAdapter } = this.httpAdapterHost;
     const ctx = host.switchToHttp();
 
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let message: string | object = 'Internal server error';
-    let details: any = null;
+    let message: string | string[] = 'Internal server error';
+    let details: unknown = undefined;
 
     if (exception instanceof HttpException) {
-      // Ошибки NestJS (включая ошибки валидации 400 и 404)
       status = exception.getStatus();
-      const response = exception.getResponse();
+      const res = exception.getResponse();
 
-      // Если это ошибка валидации (class-validator), сохраняем массив ошибок
-      if (typeof response === 'object' && response !== null) {
-        message = (response as any).message || exception.message;
-        details = (response as any).error;
-      } else {
-        message = response as string;
+      if (typeof res === 'string') {
+        message = res;
+      } else if (typeof res === 'object' && res !== null) {
+        const errorRes = res as ErrorResponseBody;
+        message = errorRes.message || exception.message;
+        details = errorRes.error;
       }
     } else if (exception instanceof MulterError) {
       status =
         exception.code === 'LIMIT_FILE_SIZE'
           ? HttpStatus.PAYLOAD_TOO_LARGE
           : HttpStatus.BAD_REQUEST;
+
+      const maxBytes = this.configService.get<number>(
+        'AVATAR_MAX_BYTES',
+        10485760,
+      );
+      const maxMB = Math.round(maxBytes / 1024 / 1024);
+
       message =
         exception.code === 'LIMIT_FILE_SIZE'
-          ? 'File too large (max 10MB)'
+          ? `File too large (max ${maxMB}MB)`
           : exception.message;
     } else if (exception instanceof Error) {
-      message = 'Internal server error';
       details = exception.message;
     }
-
-    const request = ctx.getRequest();
-    const response = ctx.getResponse();
 
     if (status >= 500) {
       this.logger.error(
@@ -77,7 +91,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: request.url,
       message: message,
-      ...(details && status >= 500 ? {} : { details }),
+      ...(details && status < 500 ? { details } : {}),
     };
 
     httpAdapter.reply(response, errorResponse, status);

@@ -7,11 +7,23 @@ import { AvatarsService } from './avatars.service.js';
 import { PassportModule } from '@nestjs/passport';
 import { AuthModule } from '../../auth/auth.module.js';
 import { AvatarsRepository } from './avatars.repository.js';
+import { MulterModule } from '@nestjs/platform-express';
+import { ConfigService } from '@nestjs/config';
+import { memoryStorage } from 'multer';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Avatar]),
     S3Module,
+    MulterModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        storage: memoryStorage(),
+        limits: {
+          fileSize: config.getOrThrow<number>('AVATAR_MAX_BYTES'),
+        },
+      }),
+    }),
     PassportModule,
     AuthModule,
   ],
