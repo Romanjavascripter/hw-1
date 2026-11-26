@@ -1,4 +1,8 @@
+import { ActiveUserResponse } from './dto/active-user-response.interface.js';
+import { Transfer } from './entity/transfer.entity.js';
 import { User } from './entity/user.entity.js';
+
+export type PublicUser = Pick<User, 'id' | 'login' | 'age'>;
 
 export abstract class IUsersRepository {
   abstract findById(id: string): Promise<User | null>;
@@ -13,7 +17,32 @@ export abstract class IUsersRepository {
     limit: number;
     search?: string;
   }): Promise<{
-    items: User[];
+    items: PublicUser[];
     total: number;
   }>;
+  abstract findByIdWithRefreshToken(id: string): Promise<User | null>;
+  abstract updateRefreshTokenHash(
+    id: string,
+    hash: string | null,
+  ): Promise<void>;
+  abstract rotateRefreshTokenHash(
+    id: string,
+    oldHash: string,
+    newHash: string,
+  ): Promise<boolean>;
+  abstract findActiveUsers(
+    minAge: number,
+    maxAge: number,
+  ): Promise<ActiveUserResponse[]>;
+  abstract transferMoney(params: {
+    senderId: string;
+    receiverId: string;
+    amount: string;
+    idempotencyKey: string;
+  }): Promise<{ newBalance: string }>;
+  abstract findIdWithPassword(id: string): Promise<User | null>;
+  abstract findTransferByKey(
+    idempotencyKey: string,
+    senderId: string,
+  ): Promise<Transfer | null>;
 }
