@@ -5,10 +5,12 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  Unique,
 } from 'typeorm';
 import { User } from './user.entity.js';
 
 @Entity('transfers')
+@Unique(['senderId', 'idempotencyKey'])
 export class Transfer {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -38,7 +40,7 @@ export class Transfer {
   })
   senderBalanceAfter: string;
 
-  @Column({ name: 'idempotency_key', type: 'varchar', unique: true })
+  @Column({ name: 'idempotency_key', type: 'uuid' })
   idempotencyKey: string;
 
   @CreateDateColumn({ type: 'timestamptz' })

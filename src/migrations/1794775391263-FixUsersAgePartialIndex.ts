@@ -1,11 +1,8 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class FixUsersAgePartialIndex1794200000002 implements MigrationInterface {
+export class FixUsersAgePartialIndex1794775391263 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // 1. Удаляем старый (полный) индекс
-    await queryRunner.query(`DROP INDEX "public"."IDX_users_age"`);
-
-    // 2. Создаем новый ЧАСТИЧНЫЙ индекс
+    await queryRunner.query(`DROP INDEX IF EXISTS "public"."IDX_users_age"`);
     await queryRunner.query(`
             CREATE INDEX "IDX_users_age_active" 
             ON "users" ("age") 
@@ -14,7 +11,9 @@ export class FixUsersAgePartialIndex1794200000002 implements MigrationInterface 
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "public"."IDX_users_age_active"`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "public"."IDX_users_age_active"`,
+    );
     await queryRunner.query(`CREATE INDEX "IDX_users_age" ON "users" ("age")`);
   }
 }

@@ -55,6 +55,7 @@ export class CreateUserDto {
     example: 'OneLoveNest',
     maxLength: 1000,
   })
+  @Transform(({ value }) => (value === '' ? null : value))
   @IsOptional()
   @MaxLength(1000)
   @IsString()

@@ -1,14 +1,7 @@
+import { ActiveUserResponse } from './dto/active-user-response.interface.js';
+import { Transfer } from './entity/transfer.entity.js';
 import { User } from './entity/user.entity.js';
 
-export interface ActiveUserResponse {
-  id: string;
-  login: string;
-  age: number;
-  description: string;
-  avatarId: string;
-  avatarKey: string;
-  avatarCreatedAt: Date;
-}
 export type PublicUser = Pick<User, 'id' | 'login' | 'age'>;
 
 export abstract class IUsersRepository {
@@ -50,4 +43,5 @@ export abstract class IUsersRepository {
     newReceiverBalance: string;
   }): Promise<{ newBalance: string }>;
   abstract findIdWithPassword(id: string): Promise<User | null>;
+  abstract findTransferByKey(idempotencyKey: string): Promise<Transfer | null>;
 }

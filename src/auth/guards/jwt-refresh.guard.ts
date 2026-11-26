@@ -2,6 +2,7 @@ import { ExecutionContext, Injectable } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { RefreshDto } from '../dto/refresh.dto.js';
 import { validateBody } from './validate-body.js';
+import type { Request } from 'express';
 
 @Injectable()
 export class JwtRefreshGuard extends AuthGuard('jwt-refresh') {

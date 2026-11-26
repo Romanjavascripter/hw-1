@@ -7,7 +7,7 @@ import { IUsersRepository } from './users.repository.interface.js';
 import { Transfer } from './entity/transfer.entity.js';
 import { ConfigService } from '@nestjs/config';
 import { PasswordHasherService } from '../../auth/password-hasher.service.js';
-import { getLoggerToken } from 'nestjs-pino';
+import { getLoggerToken, PinoLogger } from 'nestjs-pino';
 
 type mockRepo = {
   findAll: ReturnType<typeof vi.fn>;
@@ -39,6 +39,7 @@ type MockPasswordHasher = {
 type MockPinoLogger = {
   info: ReturnType<typeof vi.fn>;
   error: ReturnType<typeof vi.fn>;
+  debug: ReturnType<typeof vi.fn>;
 };
 
 describe('UsersService', () => {
@@ -80,6 +81,7 @@ describe('UsersService', () => {
     mockPinoLogger = {
       info: vi.fn(),
       error: vi.fn(),
+      debug: vi.fn(),
     };
 
     const module = await Test.createTestingModule({
@@ -93,6 +95,17 @@ describe('UsersService', () => {
         {
           provide: getLoggerToken(UsersService.name),
           useValue: mockPinoLogger,
+        },
+        {
+          provide: PinoLogger,
+          useValue: {
+            debug: vi.fn(),
+            info: vi.fn(),
+            error: vi.fn(),
+            warn: vi.fn(),
+            trace: vi.fn(),
+            fatal: vi.fn(),
+          },
         },
       ],
     }).compile();

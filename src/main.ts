@@ -3,11 +3,17 @@ import { AppModule } from './app.module.js';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
-import { MulterExceptionFilter } from './common/filters/multer-exception.filter.js';
+import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
+
+  app.enableShutdownHooks();
+
+  const config = app.get(ConfigService);
+  const port = config.getOrThrow<number>('PORT');
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -16,18 +22,18 @@ async function bootstrap() {
     }),
   );
 
-  const config = new DocumentBuilder()
+  const swaggerConfig = new DocumentBuilder()
     .setTitle('HW-Authorization')
     .setDescription('Authorization API')
     .setVersion('1.0')
     .addBearerAuth()
     .build();
 
-  const documentFactory = () => SwaggerModule.createDocument(app, config);
+  const documentFactory = () =>
+    SwaggerModule.createDocument(app, swaggerConfig);
 
   SwaggerModule.setup('api', app, documentFactory);
-  app.useGlobalFilters(new MulterExceptionFilter());
-  await app.listen(process.env.PORT ?? 3000);
-  app.get(Logger).log('🚀 Приложение успешно запущено на порту 3000');
+  await app.listen(port);
+  app.get(Logger).log(`Приложение успешно запущено на порту ${port}`);
 }
 await bootstrap();

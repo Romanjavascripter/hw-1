@@ -1,56 +1,32 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { IUsersRepository } from '../features/users/users.repository.interface.js';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { User } from '../features/users/entity/user.entity.js';
 import { CreateUserDto } from '../features/users/dto/create-user.dto.js';
-import { randomUUID } from 'node:crypto';
-import { hashToken } from './hash-token.js';
 import { JwtPayload } from './jwt-payload.interface.js';
 import { PasswordHasherService } from './password-hasher.service.js';
-
-const UNIQUE_VIOLATION = '23505';
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === UNIQUE_VIOLATION
-  );
-}
+import { TokenService } from './token.service.js';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
+import { UniqueViolationError } from '../features/users/errors/unique-violation.error.js';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly usersRepo: IUsersRepository,
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+    private readonly tokens: TokenService,
     private readonly passwordHasher: PasswordHasherService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
-  private generateTokens(user: User) {
-    const payload: JwtPayload = { sub: user.id, login: user.login };
-    const accessToken = this.jwtService.sign(payload, {
-      secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
-      expiresIn: this.configService.get('JWT_ACCESS_EXPIRES_IN', '15m'),
-    });
-    const refreshToken = this.jwtService.sign(
-      { ...payload, jti: randomUUID() },
-      {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: this.configService.get('JWT_REFRESH_EXPIRES_IN', '7d'),
-      },
-    );
-    return { access_token: accessToken, refresh_token: refreshToken };
-  }
   private async issueTokens(user: User, expectedHash?: string) {
-    const tokens = this.generateTokens(user);
-    const newHash = hashToken(tokens.refresh_token);
+    const pair = this.tokens.generatePair(user);
+    const newHash = this.tokens.hash(pair.refresh_token);
+
     if (expectedHash !== undefined) {
       const rotated = await this.usersRepo.rotateRefreshTokenHash(
         user.id,
@@ -62,12 +38,14 @@ export class AuthService {
     } else {
       await this.usersRepo.updateRefreshTokenHash(user.id, newHash);
     }
+
     const { password: _password, refreshTokenHash: _hash, ...safeUser } = user;
     return {
-      ...tokens,
+      ...pair,
       user: safeUser,
     };
   }
+
   async register(createUserDto: CreateUserDto) {
     const hashedpassword = await this.passwordHasher.hash(
       createUserDto.password,
@@ -80,22 +58,31 @@ export class AuthService {
       age: createUserDto.age,
       description: createUserDto.description,
     };
+
     try {
       const newUser = await this.usersRepo.create(userData);
+      const version =
+        (await this.cacheManager.get<number>('users:list:version')) ?? 1;
+      await this.cacheManager.set('users:list:version', version + 1, 0);
+
       return await this.issueTokens(newUser);
     } catch (error: unknown) {
-      if (isUniqueViolation(error)) {
+      if (error instanceof UniqueViolationError) {
         throw new ConflictException('User already exists');
       }
       throw error;
     }
   }
+
   async login(user: User) {
     return this.issueTokens(user);
   }
 
   async refresh(user: User) {
-    if (!user.refreshTokenHash) throw new UnauthorizedException('Invalid data');
+    if (!user.refreshTokenHash)
+      throw new UnauthorizedException(
+        'Session expired. Please log in again data',
+      );
     return this.issueTokens(user, user.refreshTokenHash);
   }
 

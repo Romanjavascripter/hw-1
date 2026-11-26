@@ -6,7 +6,10 @@ export class TransferDto {
   @IsUUID()
   @IsNotEmpty()
   receiverId: string;
-  @ApiProperty({ example: '42.24' })
+  @ApiProperty({
+    example: '42.24',
+    pattern: '^(?!0+(\\.0{1,2})?$)\\d+(?:\\.\\d{1,2})?$',
+  })
   @IsString()
   @Matches(/^(?!0+(\.0{1,2})?$)\d{1,10}(\.\d{1,2})?$/, {
     message:

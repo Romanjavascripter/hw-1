@@ -7,6 +7,7 @@ import { AvatarCleanupController } from './avatar-cleanup.controller.js';
 import { AvatarCleanupService } from './avatar-cleanup.service.js';
 import { AvatarCleanupProcessor } from './avatar-cleanup.processor.js';
 import { AvatarCleanupScheduler } from './avatar-cleanup.scheduler.js';
+import { AvatarCleanupRepository } from './avatar-cleanup.repository.js';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { AvatarCleanupScheduler } from './avatar-cleanup.scheduler.js';
     AvatarCleanupService,
     AvatarCleanupProcessor,
     AvatarCleanupScheduler,
+    AvatarCleanupRepository,
   ],
 })
 export class AvatarCleanupModule {}

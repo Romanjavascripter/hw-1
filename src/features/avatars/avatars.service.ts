@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { Avatar } from '../users/entity/avatar.entity.js';
 import { S3Service } from '../../providers/s3/s3.service.js';
-import { DataSource } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { AvatarsRepository } from './avatars.repository.js';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
@@ -14,7 +13,7 @@ export class AvatarsService {
   constructor(
     private readonly avatarsRepo: AvatarsRepository,
     private readonly s3Service: S3Service,
-    private readonly dataSource: DataSource,
+
     @InjectPinoLogger(AvatarsService.name) private readonly logger: PinoLogger,
   ) {}
 
@@ -32,27 +31,17 @@ export class AvatarsService {
     });
 
     try {
-      return await this.dataSource.transaction(async (manager) => {
-        await manager.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [
-          userId,
-        ]);
-        const activeCount = await this.avatarsRepo.countActiveAvatars(
-          userId,
-          manager,
-        );
+      const avatar = await this.avatarsRepo.createAvatarInTransaction(
+        userId,
+        { userId, objectKey: key, mimeType: file.mimetype, size: file.size },
+        5,
+      );
+      if (!avatar) {
+        await this.s3Service.removeFile({ path: key }).catch(() => {});
+        throw new ConflictException('Maximum 5 active avatars allowed');
+      }
 
-        if (activeCount >= 5) {
-          await this.s3Service.removeFile({ path: key }).catch(() => {});
-          throw new ConflictException('Maximum 5 active avatars allowed');
-        }
-        const avatar = manager.create(Avatar, {
-          userId,
-          objectKey: key,
-          mimeType: file.mimetype,
-          size: file.size,
-        });
-        return manager.save(avatar);
-      });
+      return avatar;
     } catch (error) {
       await this.s3Service.removeFile({ path: key }).catch(() => {});
       throw error;
@@ -63,7 +52,12 @@ export class AvatarsService {
     if (!avatar) {
       throw new NotFoundException('Avatar not found');
     }
-    await this.avatarsRepo.softDelete(id);
+
+    const isDeleted = await this.avatarsRepo.softDelete(id);
+
+    if (!isDeleted) {
+      throw new NotFoundException('Avatar could not be deleted');
+    }
 
     this.s3Service
       .removeFile({ path: avatar.objectKey })

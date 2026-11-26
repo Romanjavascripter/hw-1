@@ -9,13 +9,13 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { PasswordHasherService } from './password-hasher.service.js';
+import { TokenService } from './token.service.js';
 
 @Module({
   imports: [
     UsersModule,
     JwtModule.register({}),
     PassportModule.register({ defaultStrategy: 'jwt' }),
-    PasswordHasherService,
   ],
   controllers: [AuthController],
   providers: [
@@ -24,7 +24,9 @@ import { PasswordHasherService } from './password-hasher.service.js';
     JwtStrategy,
     JwtRefreshStrategy,
     JwtAuthGuard,
+    PasswordHasherService,
+    TokenService,
   ],
-  exports: [AuthService, JwtAuthGuard, PassportModule],
+  exports: [AuthService, JwtAuthGuard, PassportModule, TokenService],
 })
 export class AuthModule {}

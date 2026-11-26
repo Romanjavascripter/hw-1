@@ -34,7 +34,7 @@ export class UsersService {
     @InjectRepository(Transfer) private transferRepo: Repository<Transfer>,
     @InjectPinoLogger(UsersService.name) private logger: PinoLogger,
   ) {
-    this.cacheTtl = this.config.getOrThrow<number>('CACHE_TTL_MS');
+    this.cacheTtl = Number(this.config.getOrThrow<number>('CACHE_TTL_MS'));
   }
 
   private getUsersListCacheKey(query: FindUsersDto, version: number): string {
@@ -75,10 +75,10 @@ export class UsersService {
 
     const cached = await this.cacheManager.get<PaginatedDto>(cacheKey);
     if (cached) {
-      this.logger.info(`🟢 Cache HIT: ${cacheKey}`);
+      this.logger.debug(`🟢 Cache HIT: ${cacheKey}`);
       return cached;
     }
-    this.logger.info(`🔴 Cache MISS: ${cacheKey}`);
+    this.logger.debug(`🔴 Cache MISS: ${cacheKey}`);
 
     const result = await this.withSingleFlight(cacheKey, async () => {
       const { search, page, limit } = query;
@@ -102,10 +102,10 @@ export class UsersService {
     const cacheKey = `user:profile:${id}`;
     const cached = await this.cacheManager.get(cacheKey);
     if (cached) {
-      this.logger.info(`🟢 Cache HIT: ${cacheKey}`);
+      this.logger.debug(`🟢 Cache HIT: ${cacheKey}`);
       return cached;
     }
-    this.logger.info(`🔴 Cache MISS: ${cacheKey}`);
+    this.logger.debug(`🔴 Cache MISS: ${cacheKey}`);
 
     const user = await this.withSingleFlight(cacheKey, async () => {
       return this.usersRepo.findById(id);
@@ -147,17 +147,7 @@ export class UsersService {
     minAge: number,
     maxAge: number,
   ): Promise<ActiveUserResponse[]> {
-    this.logger.info(
-      `🔍 Ищем активных юзеров от ${minAge} до ${maxAge} лет...`,
-    );
-
-    const startTime = Date.now();
-
     const result = await this.usersRepo.findActiveUsers(minAge, maxAge);
-
-    const time = Date.now() - startTime;
-    this.logger.info(`✅ Найдено ${result.length} юзеров за ${time} мс`);
-
     return result;
   }
 
@@ -170,7 +160,7 @@ export class UsersService {
         amount: dto.amount,
         idempotencyKey,
       },
-      '💸 Начинаю перевод денег',
+      'Начинаю перевод денег',
     );
 
     if (!receiverId) throw new BadRequestException('Receiver ID is required');
@@ -178,7 +168,7 @@ export class UsersService {
       throw new BadRequestException('Cannot transfer to yourself');
 
     const existing = await this.transferRepo.findOne({
-      where: { idempotencyKey },
+      where: { idempotencyKey, senderId },
     });
     if (existing) {
       if (
@@ -213,6 +203,10 @@ export class UsersService {
         .plus(transferAmount)
         .toFixed(2),
     });
+
+    await this.cacheManager.del(`user:profile:${senderId}`);
+    await this.cacheManager.del(`user:profile:${receiverId}`);
+
     this.logger.info(
       { senderId, receiverId, amount, newBalance: result.newBalance },
       '✅ Перевод успешно завершен',

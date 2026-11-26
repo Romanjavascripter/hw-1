@@ -1,18 +1,18 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  ActiveUserResponse,
-  IUsersRepository,
-} from './users.repository.interface.js';
+import { IUsersRepository } from './users.repository.interface.js';
 import { InjectRepository } from '@nestjs/typeorm';
 import { User } from './entity/user.entity.js';
 import { DataSource, ILike, QueryFailedError, Repository } from 'typeorm';
 import { Transfer } from './entity/transfer.entity.js';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Decimal } from 'decimal.js';
+import { Avatar } from './entity/avatar.entity.js';
+import { ActiveUserResponse } from './dto/active-user-response.interface.js';
 
 export type PublicUser = Pick<User, 'id' | 'login' | 'age'>;
 
@@ -57,10 +57,15 @@ export class UsersRepository implements IUsersRepository {
       return this.findById(id);
     } catch (error: unknown) {
       if (error instanceof QueryFailedError) {
-        const pgError = error.driverError as { code?: string };
+        const pgError = error.driverError as { code?: string; column?: string };
         if (pgError.code === '23505') {
           throw new ConflictException(
             'User with this login or email already exists',
+          );
+        }
+        if (pgError.code === '23502') {
+          throw new BadRequestException(
+            `Field "${pgError.column ?? 'unknown'}" cannot be null`,
           );
         }
       }
@@ -68,7 +73,10 @@ export class UsersRepository implements IUsersRepository {
     }
   }
   async delete(id: string): Promise<void> {
-    await this.repo.softDelete(id);
+    await this.dataSource.transaction(async (manager) => {
+      await manager.softDelete(User, id);
+      await manager.softDelete(Avatar, { userId: id });
+    });
   }
 
   async findAll(params: {
@@ -115,9 +123,7 @@ export class UsersRepository implements IUsersRepository {
     minAge: number,
     maxAge: number,
   ): Promise<ActiveUserResponse[]> {
-    this.logger.info(
-      `🔍 Ищем активных юзеров от ${minAge} до ${maxAge} лет...`,
-    );
+    this.logger.info(`Ищем активных юзеров от ${minAge} до ${maxAge} лет...`);
 
     const startTime = Date.now();
 
@@ -140,7 +146,7 @@ export class UsersRepository implements IUsersRepository {
     ]);
 
     const time = Date.now() - startTime;
-    this.logger.info(`✅ Найдено ${result.length} юзеров за ${time} мс`);
+    this.logger.info(`Найдено ${result.length} юзеров за ${time} мс`);
 
     return result;
   }
@@ -237,5 +243,8 @@ export class UsersRepository implements IUsersRepository {
       .addSelect('user.password')
       .where('user.id=:id', { id })
       .getOne();
+  }
+  async findTransferByKey(idempotencyKey: string): Promise<Transfer | null> {
+    return this.transferRepo.findOne({ where: { idempotencyKey } });
   }
 }

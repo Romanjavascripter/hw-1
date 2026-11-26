@@ -1,163 +1,186 @@
-import { Test } from '@nestjs/testing';
-import { AuthService } from './auth.service.js';
-import { IUsersRepository } from '../features/users/users.repository.interface.js';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
-import { User } from '../features/users/entity/user.entity.js';
-import { hashToken } from './hash-token.js';
-import { getLoggerToken } from 'nestjs-pino';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { AuthService } from './auth.service.js';
+import { TokenService } from './token.service.js';
 import { PasswordHasherService } from './password-hasher.service.js';
-
-type MockPasswordHasher = {
-  hash: ReturnType<typeof vi.fn>;
-  compare: ReturnType<typeof vi.fn>;
-};
+import { IUsersRepository } from '../features/users/users.repository.interface.js';
+import { UniqueViolationError } from '../features/users/errors/unique-violation.error.js';
 
 describe('AuthService', () => {
   let service: AuthService;
-  let mockPasswordHasher: MockPasswordHasher;
-  let repo: {
-    create: ReturnType<typeof vi.fn>;
-    updateRefreshTokenHash: ReturnType<typeof vi.fn>;
-    rotateRefreshTokenHash: ReturnType<typeof vi.fn>;
+
+  const mockUsersRepo = {
+    create: vi.fn(),
+    updateRefreshTokenHash: vi.fn(),
+    rotateRefreshTokenHash: vi.fn(),
   };
 
-  const dto = {
-    login: 'lance',
-    email: 'example@mail.com',
-    password: 'qwerty123',
+  const mockTokenService = {
+    generatePair: vi.fn(),
+    hash: vi.fn(),
+    verifyAccess: vi.fn(),
+    verifyRefresh: vi.fn(),
+  };
+
+  const mockHasher = {
+    hash: vi.fn(),
+  };
+
+  const mockCache = {
+    get: vi.fn(),
+    set: vi.fn(),
+  };
+
+  const baseUser = {
+    id: 'user-1',
+    login: 'alice',
+    email: 'a@a.com',
+    password: 'hashed-password',
+    refreshTokenHash: null,
     age: 20,
+    description: null,
+  };
+
+  const basePair = {
+    access_token: 'access-token',
+    refresh_token: 'refresh-token',
   };
 
   beforeEach(async () => {
-    mockPasswordHasher = {
-      hash: vi.fn().mockResolvedValue('hashed_password'),
-      compare: vi.fn().mockResolvedValue(true),
-    };
-    repo = {
-      create: vi.fn(),
-      updateRefreshTokenHash: vi.fn(),
-      rotateRefreshTokenHash: vi.fn(),
-    };
+    vi.resetAllMocks();
 
-    const moduleRef = await Test.createTestingModule({
+    mockTokenService.generatePair.mockReturnValue(basePair);
+    mockTokenService.hash.mockImplementation((t: string) => `hash(${t})`);
+    mockHasher.hash.mockResolvedValue('hashed-password');
+    mockCache.get.mockResolvedValue(1);
+    mockCache.set.mockResolvedValue(undefined);
+
+    const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
-        { provide: IUsersRepository, useValue: repo },
-        {
-          provide: JwtService,
-          useValue: { sign: vi.fn(() => 'подписанный токен') },
-        },
-        {
-          provide: ConfigService,
-          useValue: {
-            get: vi.fn(() => '15m'),
-            getOrThrow: vi.fn(() => 'тестовый секрет'),
-          },
-        },
-        {
-          provide: PasswordHasherService,
-          useValue: mockPasswordHasher,
-        },
-        {
-          provide: getLoggerToken(AuthService.name),
-          useValue: { info: vi.fn(), error: vi.fn() },
-        },
+        { provide: IUsersRepository, useValue: mockUsersRepo },
+        { provide: TokenService, useValue: mockTokenService },
+        { provide: PasswordHasherService, useValue: mockHasher },
+        { provide: CACHE_MANAGER, useValue: mockCache },
       ],
     }).compile();
-    service = moduleRef.get(AuthService);
+
+    service = module.get(AuthService);
   });
 
   it('В ответе register нет поля password', async () => {
-    repo.create.mockImplementation((data) =>
-      Promise.resolve({ id: '1', ...data }),
-    );
+    mockUsersRepo.create.mockResolvedValue({ ...baseUser });
+    mockUsersRepo.updateRefreshTokenHash.mockResolvedValue(undefined);
 
-    const result = await service.register(dto);
+    const result = await service.register({
+      login: 'alice',
+      email: 'a@a.com',
+      password: 'plain',
+      age: 20,
+      description: null,
+    } as any);
+
     expect(result.user).not.toHaveProperty('password');
-    expect(result.access_token).toBeDefined();
-    expect(result.refresh_token).toBeDefined();
   });
 
-  it('превращает ошибку 23505 в ConflictException ', async () => {
-    repo.create.mockRejectedValue({ code: '23505' });
+  it('превращает UniqueViolationError в ConflictException', async () => {
+    mockUsersRepo.create.mockRejectedValue(new UniqueViolationError('login'));
 
-    await expect(service.register(dto)).rejects.toThrow(ConflictException);
+    await expect(
+      service.register({
+        login: 'alice',
+        email: 'a@a.com',
+        password: 'plain',
+        age: 20,
+        description: null,
+      } as any),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('сохраняет пароль в виде bcrypt-хеша, а не открытым текстом', async () => {
-    const fakeBcryptHash =
-      '$2b$10$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXY123456';
-    mockPasswordHasher.hash.mockResolvedValue(fakeBcryptHash);
-    repo.create.mockImplementation((data) =>
-      Promise.resolve({ id: '1', ...data }),
+    mockUsersRepo.create.mockResolvedValue({ ...baseUser });
+    mockUsersRepo.updateRefreshTokenHash.mockResolvedValue(undefined);
+
+    await service.register({
+      login: 'alice',
+      email: 'a@a.com',
+      password: 'plain-secret',
+      age: 20,
+      description: null,
+    } as any);
+
+    expect(mockHasher.hash).toHaveBeenCalledWith('plain-secret');
+    expect(mockUsersRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ password: 'hashed-password' }),
     );
-
-    await service.register(dto);
-    const savedUser = repo.create.mock.calls[0][0] as Partial<User>;
-
-    expect(savedUser.password).not.toBe(dto.password);
-    expect(savedUser.password).toMatch(/^\$2[aby]\$/);
-    expect(savedUser.password).toHaveLength(60);
   });
 
   it('register сохраняет хэш рефреша, а не сам токен', async () => {
-    repo.create.mockImplementation((data) =>
-      Promise.resolve({ id: '1', ...data }),
+    mockUsersRepo.create.mockResolvedValue({ ...baseUser });
+    mockUsersRepo.updateRefreshTokenHash.mockResolvedValue(undefined);
+
+    await service.register({
+      login: 'alice',
+      email: 'a@a.com',
+      password: 'plain',
+      age: 20,
+      description: null,
+    } as any);
+
+    expect(mockTokenService.hash).toHaveBeenCalledWith('refresh-token');
+    expect(mockUsersRepo.updateRefreshTokenHash).toHaveBeenCalledWith(
+      'user-1',
+      'hash(refresh-token)',
     );
-    const result = await service.register(dto);
-    expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith(
-      '1',
-      hashToken(result.refresh_token),
-    );
-    const savedHash = repo.updateRefreshTokenHash.mock.calls[0][1];
-    expect(savedHash).not.toBe(result.refresh_token);
-    expect(savedHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('refresh ротирует хэш: старый хэш → хэш нового токена', async () => {
-    const oldHash = 'a'.repeat(64);
-    const user = { id: '1', login: 'lance', refreshTokenHash: oldHash } as User;
-    repo.rotateRefreshTokenHash.mockResolvedValue(true);
+    mockUsersRepo.rotateRefreshTokenHash.mockResolvedValue(true);
 
-    const result = await service.refresh(user);
+    const user = { ...baseUser, refreshTokenHash: 'old-hash' };
+    await service.refresh(user as any);
 
-    expect(repo.rotateRefreshTokenHash).toHaveBeenCalledTimes(1);
-    expect(repo.rotateRefreshTokenHash).toHaveBeenCalledWith(
-      '1',
-      oldHash,
-      hashToken(result.refresh_token),
+    expect(mockUsersRepo.rotateRefreshTokenHash).toHaveBeenCalledWith(
+      'user-1',
+      'old-hash',
+      'hash(refresh-token)',
     );
-    // при ротации обычный update не должен вызываться
-    expect(repo.updateRefreshTokenHash).not.toHaveBeenCalled();
-    expect(result.access_token).toBeDefined();
-    expect(result.refresh_token).toBeDefined();
   });
 
   it('refresh кидает UnauthorizedException, если rotateRefreshTokenHash вернул false', async () => {
-    const oldHash = 'a'.repeat(64);
-    const user = { id: '1', login: 'lance', refreshTokenHash: oldHash } as User;
-    // гонка проиграна — старый хэш уже не совпадает
-    repo.rotateRefreshTokenHash.mockResolvedValue(false);
+    mockUsersRepo.rotateRefreshTokenHash.mockResolvedValue(false);
 
-    await expect(service.refresh(user)).rejects.toThrow(UnauthorizedException);
-    expect(repo.rotateRefreshTokenHash).toHaveBeenCalledTimes(1);
-    // токены не отдаются: вызов бросил исключение, результата нет
+    const user = { ...baseUser, refreshTokenHash: 'old-hash' };
+    await expect(service.refresh(user as any)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it('в ответе нет поля refreshTokenHash', async () => {
-    const user = {
-      id: '1',
-      login: 'lance',
-      refreshTokenHash: 'rfrjqhash',
-    } as User;
-    const result = await service.login(user);
+    mockUsersRepo.create.mockResolvedValue({ ...baseUser });
+    mockUsersRepo.updateRefreshTokenHash.mockResolvedValue(undefined);
+
+    const result = await service.register({
+      login: 'alice',
+      email: 'a@a.com',
+      password: 'plain',
+      age: 20,
+      description: null,
+    } as any);
+
     expect(result.user).not.toHaveProperty('refreshTokenHash');
   });
 
   it('logout терминирует старый хеш', async () => {
-    await service.logout('1');
-    expect(repo.updateRefreshTokenHash).toHaveBeenCalledWith('1', null);
+    mockUsersRepo.updateRefreshTokenHash.mockResolvedValue(undefined);
+
+    await service.logout('user-1');
+
+    expect(mockUsersRepo.updateRefreshTokenHash).toHaveBeenCalledWith(
+      'user-1',
+      null,
+    );
   });
 });

@@ -5,11 +5,12 @@ import { Avatar } from '../users/entity/avatar.entity.js';
 import { S3Service } from '../../providers/s3/s3.service.js';
 import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import { AvatarCleanupRepository } from './avatar-cleanup.repository.js';
 
 @Injectable()
 export class AvatarCleanupService {
   constructor(
-    @InjectRepository(Avatar) private avatarRepo: Repository<Avatar>,
+    private cleanupRepo: AvatarCleanupRepository,
     @InjectPinoLogger(AvatarCleanupService.name)
     private readonly logger: PinoLogger,
     private s3Service: S3Service,
@@ -36,21 +37,18 @@ export class AvatarCleanupService {
     );
 
     while (true) {
-      const oldAvatars = await this.avatarRepo.find({
-        withDeleted: true,
-        where: {
-          deletedAt: LessThan(thresholdDate),
-          ...(failedIds.length > 0 && { id: Not(In(failedIds)) }),
-        },
-        take: BATCH_SIZE,
-      });
+      const oldAvatars = await this.cleanupRepo.findOldDeletedAvatars(
+        thresholdDate,
+        BATCH_SIZE,
+        failedIds,
+      );
       if (oldAvatars.length === 0) {
         break;
       }
       for (const avatar of oldAvatars) {
         try {
           await this.s3Service.removeFile({ path: avatar.objectKey });
-          await this.avatarRepo.delete(avatar.id);
+          await this.cleanupRepo.hardDelete(avatar.id);
           deletedCount++;
         } catch (error) {
           failedCount++;

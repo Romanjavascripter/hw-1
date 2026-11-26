@@ -1,4 +1,4 @@
-import { Inject, Module, OnApplicationShutdown } from '@nestjs/common';
+import { Inject, Module, OnApplicationShutdown, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module.js';
@@ -11,24 +11,33 @@ import { BullModule } from '@nestjs/bullmq';
 import { AvatarCleanupModule } from './features/avatar-cleanup/avatar-cleanup.module.js';
 import { Redis } from 'ioredis';
 import { randomUUID } from 'node:crypto';
-import { ClsModule } from 'nestjs-cls';
-import { LoggerModule } from 'nestjs-pino';
+import { ClsModule, ClsService } from 'nestjs-cls';
+import { InjectPinoLogger, LoggerModule, PinoLogger } from 'nestjs-pino';
+import { APP_FILTER } from '@nestjs/core';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
+import { envSchema } from './config/env.validation.js';
+import databaseConfig from './config/database.config.js';
+import jwtConfig from './config/jwt.config.js';
+import { RedisModule } from './providers/redis/redis.module.js';
+import { Request } from 'express';
+import { IncomingMessage, ServerResponse } from 'node:http';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       envFilePath: '.env',
       isGlobal: true,
+      validate: (config) => envSchema.parse(config),
+      load: [databaseConfig, jwtConfig],
     }),
     ScheduleModule.forRoot(),
-
+    RedisModule,
     BullModule.forRootAsync({
+      imports: [RedisModule],
       inject: ['BULL_REDIS_CLIENT'],
-      useFactory: (redisConnection: Redis) => {
-        return {
-          connection: redisConnection,
-        };
-      },
+      useFactory: (redisConnection: Redis) => ({
+        connection: redisConnection,
+      }),
     }),
 
     CacheModule.registerAsync({
@@ -36,18 +45,18 @@ import { LoggerModule } from 'nestjs-pino';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         stores: [createKeyv(config.getOrThrow<string>('REDIS_URL'))],
-        ttl: config.get<number>('CACHE_TTL_MS', 30_000),
+        ttl: config.getOrThrow<number>('CACHE_TTL_MS'),
       }),
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
-        host: config.get<string>('DB_HOST'),
-        port: config.get<number>('DB_PORT'),
-        username: config.get<string>('DB_USER'),
-        password: config.get<string>('DB_PASSWORD'),
-        database: config.get<string>('DB_NAME'),
+        host: config.getOrThrow<string>('DB_HOST'),
+        port: config.getOrThrow<number>('DB_PORT'),
+        username: config.getOrThrow<string>('DB_USER'),
+        password: config.getOrThrow<string>('DB_PASSWORD'),
+        database: config.getOrThrow<string>('DB_NAME'),
         autoLoadEntities: true,
         synchronize: false,
         migrations: ['dist/migrations/*.js'],
@@ -59,29 +68,37 @@ import { LoggerModule } from 'nestjs-pino';
       middleware: {
         mount: true,
         generateId: true,
-        idGenerator: (req: any) => req.headers['x-request-id'] || randomUUID(),
+        idGenerator: (req: Request) => {
+          const header = req.headers['x-request-id'];
+          const id = Array.isArray(header) ? header[0] : header;
+          return id ?? randomUUID();
+        },
       },
     }),
-    LoggerModule.forRoot({
-      pinoHttp: {
-        genReqId: (req, res) => {
-          const id = req.headers['x-request-id'] || randomUUID();
-          res.setHeader('x-request-id', id);
-          return id;
+    LoggerModule.forRootAsync({
+      inject: [ConfigService, ClsService],
+      useFactory: (config: ConfigService, cls: ClsService) => ({
+        pinoHttp: {
+          genReqId: (req: IncomingMessage, res: ServerResponse) => {
+            const header = req.headers['x-request-id'];
+            const headerId = Array.isArray(header) ? header[0] : header;
+            const id = cls.getId() || headerId || randomUUID();
+            res.setHeader('x-request-id', id);
+            return id;
+          },
+          redact: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'password',
+            '*.password',
+            '*.refreshTokenHash',
+          ],
+          transport:
+            config.get('NODE_ENV') !== 'production'
+              ? { target: 'pino-pretty' }
+              : undefined,
         },
-
-        redact: [
-          'req.headers.authorization',
-          'req.headers.cookie',
-          'password',
-          '*.password',
-          '*.refreshTokenHash',
-        ],
-        transport:
-          process.env.NODE_ENV !== 'production'
-            ? { target: 'pino-pretty' }
-            : undefined,
-      },
+      }),
     }),
     AuthModule,
     S3Module,
@@ -90,25 +107,19 @@ import { LoggerModule } from 'nestjs-pino';
   ],
   providers: [
     {
-      provide: 'BULL_REDIS_CLIENT',
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        return new Redis({
-          host: config.get('REDIS_HOST', 'localhost'),
-          port: config.get<number>('REDIS_PORT', 6379),
-          maxRetriesPerRequest: null,
-        });
-      },
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
     },
   ],
 })
 export class AppModule implements OnApplicationShutdown {
+  private readonly logger = new Logger(AppModule.name);
   constructor(
     @Inject('BULL_REDIS_CLIENT') private readonly redisClient: Redis,
   ) {}
 
   async onApplicationShutdown() {
     await this.redisClient.quit();
-    console.log('🔌 Redis (BullMQ) connection closed gracefully.');
+    this.logger.log('Redis (BullMQ) connection closed gracefully.');
   }
 }

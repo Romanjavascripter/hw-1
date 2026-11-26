@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -17,13 +18,15 @@ import { UpdateUserDto } from './dto/update-user.dto.js';
 import { UsersService } from './users.service.js';
 import {
   ApiBearerAuth,
+  ApiHeader,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { TransferDto } from './dto/transfer.dto.js';
-import { TransferHeadersDto } from './dto/transfer-headers.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
+import { ValidatePayloadExistsPipe } from '../../common/pipes/validate-payload-exists.pipe.js';
+import { isUUID } from 'class-validator';
 
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -36,7 +39,7 @@ export class ProfileController {
   @ApiOperation({ summary: 'Профиль пользователя' })
   @Get('my')
   async myProfile(@Request() req: { user: User }) {
-    return req.user;
+    return this.usersService.getProfile(req.user.id);
   }
 
   @ApiResponse({ status: 200, description: 'Обновлённые данные' })
@@ -44,7 +47,10 @@ export class ProfileController {
   @ApiResponse({ status: 409, description: 'Логин или email уже заняты' })
   @ApiOperation({ summary: 'Изменение данных пользователя' })
   @Patch('my')
-  async updateUser(@Request() req: { user: User }, @Body() dto: UpdateUserDto) {
+  async updateUser(
+    @Request() req: { user: User },
+    @Body(ValidatePayloadExistsPipe) dto: UpdateUserDto,
+  ) {
     return this.usersService.update(req.user.id, dto);
   }
 
@@ -55,6 +61,7 @@ export class ProfileController {
   async deleteUser(@Request() req: { user: User }) {
     await this.usersService.delete(req.user.id);
   }
+
   @ApiResponse({ status: 200, description: 'Перевод успешно выполнен' })
   @ApiResponse({
     status: 400,
@@ -63,18 +70,29 @@ export class ProfileController {
   @ApiResponse({ status: 401, description: 'Не авторизован' })
   @ApiResponse({ status: 404, description: 'Получатель не найден' })
   @ApiOperation({ summary: 'Перевод денег другому юзеру' })
+  @ApiHeader({
+    name: 'idempotency-key',
+    description: 'Уникальный UUID ключ для защиты от двойного списания',
+    required: true,
+    schema: {
+      type: 'string',
+      format: 'uuid',
+      example: '11111111-1111-1111-1111-111111111111',
+    },
+  })
   @Post('transfer')
   async transfer(
     @Request() req: { user: User },
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() dto: TransferDto,
-
-    @Headers() headers: TransferHeadersDto,
   ) {
-    return this.usersService.transfer(
-      req.user.id,
-      dto,
-      headers['idempotency-key'],
-    );
+    if (!idempotencyKey || !isUUID(idempotencyKey, 4)) {
+      throw new BadRequestException(
+        'Idempotency-Key header is required and must be a UUID v4',
+      );
+    }
+
+    return this.usersService.transfer(req.user.id, dto, idempotencyKey);
   }
 
   @Patch('change-password')
